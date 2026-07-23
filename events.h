@@ -23,20 +23,20 @@ enum class EventType : uint8_t {
 } ;
 
 enum class AgentTier : uint8_t {
-    //HFT           = 0,
+    //HFT = 0,
     //Fundamentalist = 1,
     //INSTITUTIONAL = 2,
-    //RETAIL        = 3,
-    EXCHANGE      = 4,
-    ZI            = 5
+    //RETAIL = 3,
+    EXCHANGE = 4,
+    ZI = 5
 } ;
 
-enum class Symbol : uint8_t {
-    AAPL = 0,
+enum class Symbol : uint16_t {
+    AAPL = 0, // stock locate
     MSFT = 1,
     TSLA = 2,
     SPY  = 3,
-    NIL  = 4
+    NIL  = 4,
 } ;
 
 enum class Reason : uint8_t {
@@ -153,6 +153,8 @@ struct ReplaceRejected {
 
 struct AgentWakePayload{
     uint64_t last_wakeup = 0 ; // 0 helpful in start of sim
+    AgentTier tier = AgentTier::ZI ;
+    uint32_t index = 0 ;
 } ;
 
 
@@ -179,7 +181,7 @@ struct Event {
     EventType event_type ;
     MsgType msg_type ;
 
-    uint32_t stock_locate ;
+    uint16_t stock_locate ;
     
     union payload {
       // ouch (inbound)
@@ -208,7 +210,7 @@ struct Event {
       // default
       payload() {} 
       
-      // 2. ADD THIS TEMPLATE CONSTRUCTOR FOR BRACES TO WORK:
+      //  ADD THIS TEMPLATE CONSTRUCTOR FOR BRACES TO WORK:
       template<typename T>
       payload(const T& msg) {
           // This safely uses placement new to copy any packet type into the shared memory

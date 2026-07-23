@@ -40,12 +40,6 @@ constexpr uint64_t PT_LEVEL_WALK = 100;
 constexpr uint64_t PT_ADD_ORDER = 250;
 constexpr uint64_t PT_CANCEL = 100;
 
-// global sequence number ( for testing) 
-uint64_t seq_num = 1 ; 
-
-// tick size 
-uint64_t TICK_SIZE = 100 ; // when factor is 100 ( 2 decimal places)
-
 
 // price level
 struct level{ // 16 bytes
@@ -104,6 +98,8 @@ private:
 public:
 
   uint64_t clock = 0 ; // use in sim mode .
+  // tick size : for stock with precison (2) eg.berkshire hathaway , update this field TICK_SIZE = 1 ; // 0.01 * 100
+  uint64_t TICK_SIZE = 100 ; // 0.01 * 10000 . precision (4).
   char stock[8] ; // 8 byte field.
   
   // key - price | value - level
@@ -300,7 +296,7 @@ public:
  
  // ouch : for simulation mode
  
- void process_ouch_request(Event& event , std::deque<Event>& feed){
+ void process_ouch_request(Event& event , std::deque<Event>& feed , uint64_t& seq_num){
   
   auto& lob = books[event.stock_locate] ;
   
@@ -323,14 +319,14 @@ public:
       auto& pkt = event.p.order_req ;
       
       // check invalid price/shares or duplicate order id.
-      if (pkt.price%TICK_SIZE != 0 || pkt.shares == 0 || orders_by_id.contains(pkt.order_id)){
+      if (pkt.price%lob.TICK_SIZE != 0 || pkt.shares == 0 || orders_by_id.contains(pkt.order_id)){
         // push ouch
         OrderRejected ouch = {pkt.order_id , Reason::invalid_order } ;
         feed.emplace_back( Event{ lob.clock, seq_num++ , event.sequence_num , EventType::S_OUCH, MsgType::OrderRej , event.stock_locate , {ouch} } ); 
       }
       else {
         // process
-        ouch_process_order(event, feed);
+        ouch_process_order(event, feed, seq_num);
       }
       
       break ;
@@ -349,7 +345,7 @@ public:
       }
       else{ 
         // process
-        ouch_cancel(event , feed);
+        ouch_cancel(event , feed, seq_num);
       }
       
       break ;
@@ -361,13 +357,13 @@ public:
       auto& pkt = event.p.replace_req ;
       
       // order id check
-      if (!orders_by_id.contains( pkt.old_id) || pkt.price%TICK_SIZE != 0 || pkt.shares == 0 ){
+      if (!orders_by_id.contains( pkt.old_id) || pkt.price%lob.TICK_SIZE != 0 || pkt.shares == 0 ){
         
         // replace ouch
         ReplaceRejected ouch = {pkt.old_id , Reason::order_id_not_found} ;
         
         // check if reason invalid order 
-        if (pkt.price%TICK_SIZE != 0 || pkt.shares == 0){
+        if (pkt.price%lob.TICK_SIZE != 0 || pkt.shares == 0){
           ouch = { pkt.new_id , Reason::invalid_order } ; 
         }
         
@@ -376,7 +372,7 @@ public:
       } 
       else {
         // process
-        ouch_replace(event , feed) ;
+        ouch_replace(event , feed, seq_num) ;
       }
       
       break ;
@@ -388,7 +384,7 @@ public:
   return ;
  }
  
- void ouch_replace(Event& event , std::deque<Event>& feed){
+ void ouch_replace(Event& event , std::deque<Event>& feed, uint64_t& seq_num){
   
   // pkt
   auto& pkt = event.p.replace_req ; // payload
@@ -422,7 +418,7 @@ public:
   return ;
 }
  
- void ouch_cancel(Event& event , std::deque<Event>& feed){
+ void ouch_cancel(Event& event , std::deque<Event>& feed, uint64_t& seq_num){
   
   // pkt
   auto& pkt = event.p.cancel_req ;
@@ -465,18 +461,18 @@ public:
   return ;
 }
  
- void ouch_process_order(Event& event , std::deque<Event>& feed ){
+ void ouch_process_order(Event& event , std::deque<Event>& feed , uint64_t& seq_num){
   // pkt
   auto& pkt = event.p.order_req ;
   
   // correct map
   if (pkt.side == 'B'){
     auto& opposite_map = books[event.stock_locate].ask_map ; // opposite for matching
-    add_or_match_order<std::flat_map<uint32_t , level , std::less<uint32_t>>>(opposite_map , feed , event , event.stock_locate , pkt.order_id , pkt.price , pkt.shares , pkt.side) ;
+    add_or_match_order<std::flat_map<uint32_t , level , std::less<uint32_t>>>(opposite_map , feed , event , seq_num, event.stock_locate , pkt.order_id , pkt.price , pkt.shares , pkt.side) ;
   } 
   else{
     auto& opposite_map = books[event.stock_locate].bid_map ; // opposite for matching
-    add_or_match_order<std::flat_map<uint32_t , level , std::greater<uint32_t>>>(opposite_map , feed , event , event.stock_locate , pkt.order_id , pkt.price , pkt.shares , pkt.side) ;
+    add_or_match_order<std::flat_map<uint32_t , level , std::greater<uint32_t>>>(opposite_map , feed , event , seq_num, event.stock_locate , pkt.order_id , pkt.price , pkt.shares , pkt.side) ;
   }
   return ;
 }
@@ -500,7 +496,7 @@ public:
  }
 
  template <typename mapType>
- void add_or_match_order(mapType& opposite_map , std::deque<Event>& feed , Event& event , uint32_t stock_locate , uint64_t order_id , uint32_t price , uint32_t shares , char side ){
+ void add_or_match_order(mapType& opposite_map , std::deque<Event>& feed , Event& event , uint64_t& seq_num, uint16_t stock_locate , uint64_t order_id , uint32_t price , uint32_t shares , char side ){
  
   // lob ref for clock increment
   auto& lob = books[stock_locate] ;
