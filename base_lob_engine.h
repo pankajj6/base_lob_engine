@@ -105,6 +105,33 @@ public:
   // key - price | value - level
   std::flat_map<uint32_t , level, std::greater<uint32_t>> bid_map ; 
   std::flat_map<uint32_t , level, std::less<uint32_t>> ask_map ;
+  
+  
+  struct LobState {
+      uint16_t stock_locate = 0 ; 
+      uint64_t clock = 0 ; 
+      uint32_t best_bid = 0 ;
+      uint32_t best_ask = 0 ;
+      uint32_t mid_price = 0 ;
+      uint32_t old_best_bid = 0 ;
+      uint32_t old_best_ask = 0 ;
+      uint32_t spread = 0 ;
+      uint32_t last_trade_price = 0 ;
+      uint64_t bid_executed_shares = 0 ;
+      uint64_t ask_executed_shares = 0 ;
+      uint64_t total_volume = 0 ; // total shares traded
+      uint32_t last_trade_size = 0 ; 
+      
+      double order_imbalance = 0; // (BidVol - AskVol) / (TotalVol)
+      
+      // Book liquidity
+      uint64_t buy_shares = 0;  
+      uint64_t sell_shares = 0;
+
+      int volatility ; 
+          
+  } state ;
+
                                                                           
   LOB(){
   
@@ -135,7 +162,7 @@ public:
 // books = 10000 * 80 kb = 800 mb. 
 // total engine = 1.2 gb.
 // kernel lob engine = same. 
-// total memory 2.4 gb for lob s.  
+// total memory 2.4 gb for lob s.
 
 template <EngineMode mode>
 class Engine{
