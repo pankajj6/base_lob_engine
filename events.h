@@ -12,7 +12,6 @@
 //                   Kernel MODE 3: update one agent, let them react
 // ============================================================
 
-#include <variant>
 #include <cstdint>
 
 enum class EventType : uint8_t {

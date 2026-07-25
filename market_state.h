@@ -3,8 +3,17 @@
 #include "base_lob_engine.h"
 #include "events.h"
 #include <cstdint>
+// #define NDEBUG 
+#include <cassert>
 
-
+template <EngineMode Mode>
+inline uint32_t find_order_index(Engine<Mode>& engine, uint64_t order_id){
+  auto it = engine.orders_by_id.find(order_id) ;
+  
+  assert(it != engine.orders_by_id.end() ) ;
+  // in NDEBUG mode this can be UB
+  return it->second ;
+}
 
 template <EngineMode Mode>
 inline void reconstruct_market_state(Engine<Mode>& engine ,  Event& event )
@@ -47,8 +56,7 @@ inline void reconstruct_market_state(Engine<Mode>& engine ,  Event& event )
         auto& canc = event.p.itch_cancel ;
 
         // order
-        auto it = engine.orders_by_id.find(canc.order_id) ;
-        auto idx = it->second ; 
+        auto idx = find_order_index(engine , canc.order_id) ;
         auto& ord = engine.pool[idx] ;
         auto side = lob.bid_map.contains(ord.price) ? 'B' : 'S' ;
 
@@ -71,8 +79,7 @@ inline void reconstruct_market_state(Engine<Mode>& engine ,  Event& event )
         auto& rep = event.p.itch_replace ;
 
         // order
-        auto it = engine.orders_by_id.find(rep.old_id) ;
-        auto idx = it->second ; 
+        auto idx = find_order_index(engine, rep.old_id) ;
         auto& ord = engine.pool[idx] ;
         auto side = lob.bid_map.contains(ord.price) ? 'B' : 'S' ;
 
@@ -92,8 +99,7 @@ inline void reconstruct_market_state(Engine<Mode>& engine ,  Event& event )
         auto& exec = event.p.itch_execute ;
 
         // order
-        auto it = engine.orders_by_id.find(exec.order_id) ;
-        auto idx = it->second ; 
+        auto idx = find_order_index(engine, exec.order_id) ;
         auto& ord = engine.pool[idx] ;
         auto side = lob.bid_map.contains(ord.price) ? 'B' : 'S' ;
 
