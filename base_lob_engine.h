@@ -17,9 +17,9 @@
 #include <cstdint>
 #include <memory>
 #include <vector>
-#include <stack>
+//#include <stack>
 #include "events.h"
-
+#include <deque>
 
 constexpr size_t ORDER_POOL_SIZE = 10000000 ; 
 // 10 million
@@ -173,7 +173,7 @@ public:
   
   boost::unordered_flat_map<uint64_t, uint32_t> orders_by_id ; // order id : pool index 
   
-  std::stack<uint32_t> free_indexs ; // hold pool indexes
+  std::vector<uint32_t> free_indexs ; // hold pool indexes
   
   std::unique_ptr<LOB[]> books ; // 10000 * 80kb = 800 mb.
   
@@ -186,10 +186,11 @@ public:
   {
     
     orders_by_id.reserve(ORDER_ID_MAP_SIZE);
-    
+    free_indexs.reserve(ORDER_POOL_SIZE);
+
     // push avaiable indexes
     for (int i= ORDER_POOL_SIZE-1 ; i >= 0 ; i--){
-      free_indexs.push(i) ;
+      free_indexs.push_back(i) ;
     }
     
     // warm up loop 
@@ -207,8 +208,9 @@ public:
     if (shares == 0) return ;
     
     // free index
-    auto idx = free_indexs.top() ;
-    free_indexs.pop() ;
+    auto idx = free_indexs.back() ; 
+    free_indexs.pop_back() ;
+    
   
     // id : index
     orders_by_id[order_id] = idx ;
@@ -269,7 +271,7 @@ public:
     // remove entry
     orders_by_id.erase(it); 
     // push free index
-    free_indexs.push(idx) ;
+    free_indexs.push_back(idx) ;
     
     Order& order = pool[idx] ;
     LOB& lob = books[stock_locate];
