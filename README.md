@@ -11,6 +11,24 @@ The same underlying book representation supports two primary workflows:
 
 The engine is intentionally kept independent of feed decoding, network protocols, agent logic, and research output pipelines so that the same book implementation can be reused across those systems.
 
+## Table of Contents
+- [Architecture](#architecture)
+- [Implementation](#implementation)
+- [Multi-Symbol Books](#multi-symbol-books)
+- [Interfaces](#interfaces)
+- [Matching-Time Model](#matching-time-model)
+- [Matching Flow](#matching-flow)
+- [Engine Modes](#engine-modes)
+- [Event Representation](#event-representation)
+- [Market State Reconstruction](#market-state-reconstruction)
+- [Price Representation and Tick Size](#price-representation-and-tick-size)
+- [Dependencies](#dependencies)
+- [Repository Layout](#repository-layout)
+- [Using as a Git Submodule](#using-as-a-git-submodule)
+- [Current Scope](#current-scope)
+- [Benchmarks](#benchmarks)
+- [Related Projects](#related-projects)
+
 ## Architecture
 
 ```mermaid
@@ -576,4 +594,14 @@ In particular, price-level representation, configured capacities, processing-tim
 
 ## Benchmarks
 
-Performance results and workload characterization will be added as the engine and its dependent reconstruction pipelines are benchmarked under representative full-market and simulation workloads.
+Because Base LOB Engine is designed as a modular core library, its performance is evaluated across two distinct downstream workloads:
+
+1. **Exchange Simulation & Routing:** In the [TALON](https://github.com/pankajj6/talon) market simulation kernel, the engine handles request-processing matching, independent instrument clocks, and dynamic event generation, driving a full multi-agent simulation at **~5.44 million events/sec**.
+2. **Historical Feed Reconstruction:** In the [PCAP Feed Decoder](https://github.com/pankajj6/pcap_feed_decoder), the engine processes preallocated order pools to reconstruct Level-3 limit order books from NASDAQ TotalView-ITCH 5.0 packets at **~5.8–6.0 million ITCH messages/sec**.
+
+Detailed workload characterization, memory configurations, and latency profiles can be found in the respective TALON simulation kernel and PCAP decoder repositories.
+
+## Related Projects
+
+- [**TALON**](https://github.com/pankajj6/talon): A deterministic, latency-aware agent-based market simulator that utilizes this engine for discrete-event exchange matching.
+- [**PCAP Feed Decoder**](https://github.com/pankajj6/pcap_feed_decoder): A deterministic NASDAQ TotalView-ITCH 5.0 PCAP decoder and Level-3 reconstruction pipeline built on this engine.
