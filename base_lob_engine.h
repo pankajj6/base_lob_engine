@@ -434,16 +434,17 @@ public:
   lob.clock += PT_CANCEL ;
   lob.clock += PT_ADD_ORDER ;
   
-  // push replace itch 
-  OrderReplace itch = {pkt.old_id,  pkt.new_id , pkt.price , pkt.shares} ;
-  feed.emplace_back( Event{ lob.clock, seq_num++ , event.sequence_num , EventType::ITCH, MsgType::OrderReplace , event.stock_locate , { itch } } ) ;
-  
+
   // resting order side  
   char side = lob.bid_map.contains(pkt.price) ? 'B' : 'S' ; 
   // push replace success ouch 
   ReplaceSuccess ouch = {pkt.new_id , pkt.price , old_cancel_shares , pkt.shares , side} ;
   feed.emplace_back( Event{ lob.clock, seq_num++ , event.sequence_num , EventType::S_OUCH, MsgType::ReplaceSucss , event.stock_locate , {ouch} } );
   
+  // push replace itch 
+  OrderReplace itch = {pkt.old_id,  pkt.new_id , pkt.price , pkt.shares} ;
+  feed.emplace_back( Event{ lob.clock, seq_num++ , event.sequence_num , EventType::ITCH, MsgType::OrderReplace , event.stock_locate , { itch } } ) ;
+
   return ;
 }
  
@@ -479,14 +480,14 @@ public:
   // increment clock
   lob.clock += PT_CANCEL ;
   
-  // push cancel itch
-  OrderCancel itch = {pkt.order_id , cancel_shares} ;
-  feed.emplace_back( Event{ lob.clock, seq_num++ , event.sequence_num , EventType::ITCH, MsgType::OrderCancel , event.stock_locate , {itch} } ) ;
-  
   // push cancel success ouch
   CancelSuccess ouch = {pkt.order_id , remaining_shares} ;
   feed.emplace_back( Event{ lob.clock, seq_num++ , event.sequence_num , EventType::S_OUCH, MsgType::CancelSucss , event.stock_locate , {ouch} } );
   
+  // push cancel itch
+  OrderCancel itch = {pkt.order_id , cancel_shares} ;
+  feed.emplace_back( Event{ lob.clock, seq_num++ , event.sequence_num , EventType::ITCH, MsgType::OrderCancel , event.stock_locate , {itch} } ) ;
+
   return ;
 }
  
@@ -581,12 +582,11 @@ public:
         
       }
       
-      // push execution
-      feed.emplace_back( Event{ lob.clock, seq_num++ , event.sequence_num , EventType::ITCH, MsgType::OrderExec , stock_locate , {itch} } ); 
-      
       // push fill notification 
       feed.emplace_back( Event{ lob.clock, seq_num++ , event.sequence_num , EventType::S_OUCH, MsgType::Fill , stock_locate , {ouch} } ); 
       
+      // push execution
+      feed.emplace_back( Event{ lob.clock, seq_num++ , event.sequence_num , EventType::ITCH, MsgType::OrderExec , stock_locate , {itch} } ); 
       
       // pre-increment clock with level walk time , if it happens in next iteration
       if (level_exhausted && shares > 0 && !opposite_map.empty()) {
@@ -613,13 +613,13 @@ public:
   // increment clock
   lob.clock += PT_ADD_ORDER ;
   
-  // push Order Add itch into feed
-  OrderAdd itch = {order_id , price , shares , side} ;
-  feed.emplace_back( Event{ lob.clock, seq_num++ , event.sequence_num , EventType::ITCH, MsgType::OrderAdd , stock_locate , {itch} } );
-  
   // push Resting notifi to agent
   OrderRestingNotify ouch = {order_id, price , shares , side } ;
   feed.emplace_back( Event{ lob.clock, seq_num++ , event.sequence_num , EventType::S_OUCH, MsgType::OrderResting , stock_locate , {ouch} } );
+  
+  // push Order Add itch into feed
+  OrderAdd itch = {order_id , price , shares , side} ;
+  feed.emplace_back( Event{ lob.clock, seq_num++ , event.sequence_num , EventType::ITCH, MsgType::OrderAdd , stock_locate , {itch} } );
  }
  
  // remaining market order ( book exhausted)
