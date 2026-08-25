@@ -43,6 +43,10 @@ protected:
         ev.msg_type = MsgType::EnterOrder;
         ev.stock_locate = test_stock;
         
+        // Add dummy agent info so it routes properly
+        ev.agent.index = 1;
+        ev.agent.tier = AgentTier::MM;
+        
         EnterOrder req;
         req.order_id = order_id;
         req.price = price;
@@ -63,6 +67,9 @@ protected:
         ev.msg_type = MsgType::CancelReq;
         ev.stock_locate = test_stock;
         
+        ev.agent.index = 1;
+        ev.agent.tier = AgentTier::MM;
+        
         CancelReq req;
         req.order_id = order_id;
         req.max_shares = max_shares;
@@ -78,6 +85,9 @@ protected:
         ev.event_type = EventType::OUCH;
         ev.msg_type = MsgType::ReplaceReq;
         ev.stock_locate = test_stock;
+        
+        ev.agent.index = 1;
+        ev.agent.tier = AgentTier::MM;
         
         ReplaceReq req;
         req.old_id = old_id;
@@ -125,17 +135,25 @@ TEST_F(MatchingEngineTest, AggressiveOrder_ExactFill) {
     EXPECT_FALSE(engine.orders_by_id.contains(1001)); // Passive should be deleted
     EXPECT_FALSE(engine.orders_by_id.contains(1002)); // Aggressive never rests
 
-    // Assert Feed: 1 Fill S_OUCH [0], 1 execution ITCH [1]
-    ASSERT_EQ(feed.size(), 2);
+    // Assert Feed: 2 Fills (Aggressive, then Passive), 1 ITCH Exec
+    ASSERT_EQ(feed.size(), 3);
     
+    // Aggressive Fill
     EXPECT_EQ(feed[0].msg_type, MsgType::Fill);
-    EXPECT_EQ(feed[0].p.fill.agg_order_id, 1002);
-    EXPECT_EQ(feed[0].p.fill.pass_order_id, 1001);
+    EXPECT_EQ(feed[0].p.fill.order_id, 1002);
     EXPECT_EQ(feed[0].p.fill.fill_shares, 100);
+    EXPECT_EQ(feed[0].p.fill.remaining_shares, 0);
 
-    EXPECT_EQ(feed[1].msg_type, MsgType::OrderExec);
-    EXPECT_EQ(feed[1].p.itch_execute.order_id, 1001); // Execution refers to resting order
-    EXPECT_EQ(feed[1].p.itch_execute.executed_shares, 100);
+    // Passive Fill
+    EXPECT_EQ(feed[1].msg_type, MsgType::Fill);
+    EXPECT_EQ(feed[1].p.fill.order_id, 1001);
+    EXPECT_EQ(feed[1].p.fill.fill_shares, 100);
+    EXPECT_EQ(feed[1].p.fill.remaining_shares, 0);
+
+    // ITCH Exec
+    EXPECT_EQ(feed[2].msg_type, MsgType::OrderExec);
+    EXPECT_EQ(feed[2].p.itch_execute.order_id, 1001); // Execution refers to resting order
+    EXPECT_EQ(feed[2].p.itch_execute.executed_shares, 100);
 }
 
 // 3. Test Partial Fill where Aggressive order survives and rests
@@ -156,15 +174,31 @@ TEST_F(MatchingEngineTest, PartialFill_AggressiveSurvivesAndRests) {
     auto& ask_map = engine.books[test_stock].ask_map;
     EXPECT_EQ(ask_map[5000].total_volume, 50); // 50 shares should remain on the ask
 
-    // Assert Feed: Fill S_OUCH [0], Exec ITCH [1], Resting S_OUCH [2], Add ITCH [3]
-    ASSERT_EQ(feed.size(), 4);
+    // Assert Feed: 2 Fills [0,1], Exec ITCH [2], Resting S_OUCH [3], Add ITCH [4]
+    ASSERT_EQ(feed.size(), 5);
     
-    EXPECT_EQ(feed[1].msg_type, MsgType::OrderExec);
-    EXPECT_EQ(feed[1].p.itch_execute.executed_shares, 50);
+    // Aggressive Fill
+    EXPECT_EQ(feed[0].msg_type, MsgType::Fill);
+    EXPECT_EQ(feed[0].p.fill.order_id, 1002);
+    EXPECT_EQ(feed[0].p.fill.fill_shares, 50);
+    EXPECT_EQ(feed[0].p.fill.remaining_shares, 50); // Aggressive has 50 left to rest
+
+    // Passive Fill
+    EXPECT_EQ(feed[1].msg_type, MsgType::Fill);
+    EXPECT_EQ(feed[1].p.fill.order_id, 1001);
+    EXPECT_EQ(feed[1].p.fill.fill_shares, 50);
+    EXPECT_EQ(feed[1].p.fill.remaining_shares, 0);
+
+    // ITCH Exec
+    EXPECT_EQ(feed[2].msg_type, MsgType::OrderExec);
+    EXPECT_EQ(feed[2].p.itch_execute.executed_shares, 50);
     
-    EXPECT_EQ(feed[3].msg_type, MsgType::OrderAdd);
-    EXPECT_EQ(feed[3].p.itch_add.order_id, 1002);
-    EXPECT_EQ(feed[3].p.itch_add.shares, 50); // Adds only the remaining 50
+    EXPECT_EQ(feed[3].msg_type, MsgType::OrderResting);
+    EXPECT_EQ(feed[3].p.order_resting.order_id, 1002);
+    
+    EXPECT_EQ(feed[4].msg_type, MsgType::OrderAdd);
+    EXPECT_EQ(feed[4].p.itch_add.order_id, 1002);
+    EXPECT_EQ(feed[4].p.itch_add.shares, 50); // Adds only the remaining 50
 }
 
 // 4. Test Partial Fill where Passive order survives
@@ -185,10 +219,23 @@ TEST_F(MatchingEngineTest, PartialFill_PassiveSurvives) {
     uint32_t pool_index = engine.orders_by_id[1001];
     EXPECT_EQ(engine.pool[pool_index].shares, 50);    // 50 shares remain
 
-    // Assert Feed (Fill is [0], Exec is [1])
-    ASSERT_EQ(feed.size(), 2);
-    EXPECT_EQ(feed[1].msg_type, MsgType::OrderExec);
-    EXPECT_EQ(feed[1].p.itch_execute.executed_shares, 50);
+    // Assert Feed: 2 Fills [0,1], 1 Exec ITCH [2]
+    ASSERT_EQ(feed.size(), 3);
+    
+    // Aggressive Fill
+    EXPECT_EQ(feed[0].msg_type, MsgType::Fill);
+    EXPECT_EQ(feed[0].p.fill.order_id, 1002);
+    EXPECT_EQ(feed[0].p.fill.fill_shares, 50);
+    EXPECT_EQ(feed[0].p.fill.remaining_shares, 0); 
+    
+    // Passive Fill
+    EXPECT_EQ(feed[1].msg_type, MsgType::Fill);
+    EXPECT_EQ(feed[1].p.fill.order_id, 1001);
+    EXPECT_EQ(feed[1].p.fill.fill_shares, 50);
+    EXPECT_EQ(feed[1].p.fill.remaining_shares, 50); 
+
+    EXPECT_EQ(feed[2].msg_type, MsgType::OrderExec);
+    EXPECT_EQ(feed[2].p.itch_execute.executed_shares, 50);
 }
 
 // 5. Test Market Order exhausting the book and rejecting remainder
@@ -212,21 +259,33 @@ TEST_F(MatchingEngineTest, MarketOrder_ExhaustsBookAndRejectsRemainder) {
     
     EXPECT_TRUE(engine.books[test_stock].bid_map.empty()); // Book should be empty
 
-    // Assert Feed: 2 Fill S_OUCH, 2 Exec ITCH, 1 Reject S_OUCH
-    ASSERT_EQ(feed.size(), 5);
+    // Assert Feed: (AggFill, PassFill, ITCH Exec) * 2 + Reject
+    ASSERT_EQ(feed.size(), 7);
     
-    // First fill against $50 level (Fill is 0, Exec is 1)
-    EXPECT_EQ(feed[1].msg_type, MsgType::OrderExec);
-    EXPECT_EQ(feed[1].p.itch_execute.order_id, 1001);
+    // First match against $50 level
+    EXPECT_EQ(feed[0].msg_type, MsgType::Fill); // Aggressive 1003
+    EXPECT_EQ(feed[0].p.fill.remaining_shares, 100);
     
-    // Second fill against $49 level (Fill is 2, Exec is 3)
-    EXPECT_EQ(feed[3].msg_type, MsgType::OrderExec);
-    EXPECT_EQ(feed[3].p.itch_execute.order_id, 1002);
+    EXPECT_EQ(feed[1].msg_type, MsgType::Fill); // Passive 1001
+    EXPECT_EQ(feed[1].p.fill.remaining_shares, 0);
+
+    EXPECT_EQ(feed[2].msg_type, MsgType::OrderExec);
+    EXPECT_EQ(feed[2].p.itch_execute.order_id, 1001);
+    
+    // Second match against $49 level
+    EXPECT_EQ(feed[3].msg_type, MsgType::Fill); // Aggressive 1003
+    EXPECT_EQ(feed[3].p.fill.remaining_shares, 50);
+    
+    EXPECT_EQ(feed[4].msg_type, MsgType::Fill); // Passive 1002
+    EXPECT_EQ(feed[4].p.fill.remaining_shares, 0);
+
+    EXPECT_EQ(feed[5].msg_type, MsgType::OrderExec);
+    EXPECT_EQ(feed[5].p.itch_execute.order_id, 1002);
     
     // Final rejection for the remaining 50 shares
-    EXPECT_EQ(feed[4].msg_type, MsgType::OrderRej);
-    EXPECT_EQ(feed[4].p.order_rej.order_id, 1003);
-    EXPECT_EQ(feed[4].p.order_rej.reason, Reason::book_empty);
+    EXPECT_EQ(feed[6].msg_type, MsgType::OrderRej);
+    EXPECT_EQ(feed[6].p.order_rej.order_id, 1003);
+    EXPECT_EQ(feed[6].p.order_rej.reason, Reason::book_empty);
 }
 
 // 6. Test Full Cancel and Clock Timing
@@ -340,10 +399,9 @@ TEST_F(MatchingEngineTest, RejectionPaths_InvalidInputs) {
     EXPECT_EQ(feed[0].p.cancel_rej.reason, Reason::order_id_not_found);
     feed.clear();
 
-    // 9c. ReplaceReq Rejection (Invalid Price per TICK_SIZE, assuming TICK_SIZE = 1 this might pass, 
-    // but we can test size 0 instead to guarantee rejection)
+    // 9c. ReplaceReq Rejection 
     auto ev4 = create_enter_order(1001, 5000, 100, 'B') ;
-    engine.process_ouch_request(ev4, feed, seq_num); // Add valid order
+    engine.process_ouch_request(ev4, feed, seq_num); 
     feed.clear();
 
     Event ev3 = create_replace_order(1001, 1002, 5000, 0); // 0 shares invalid
@@ -382,19 +440,19 @@ TEST_F(MatchingEngineTest, LevelWalk_ClockTiming_Complex) {
     EXPECT_EQ(engine.books[test_stock].clock, expected_clock);
 
     // Verify exactly when events fired
-    ASSERT_EQ(feed.size(), 6); // 3 pairs of (Fill, Exec)
+    ASSERT_EQ(feed.size(), 9); // 3 sets of (AggFill, PassFill, Exec)
 
-    // First fill timestamp (after Base + Fill 1) -> ITCH Exec is at index 1
-    EXPECT_EQ(feed[1].timestamp, start_clock + 5000 + 10);
-    EXPECT_EQ(feed[1].p.itch_execute.order_id, 1001);
+    // First ITCH Exec timestamp is at index 2
+    EXPECT_EQ(feed[2].timestamp, start_clock + 5000 + 10);
+    EXPECT_EQ(feed[2].p.itch_execute.order_id, 1001);
 
-    // Second fill timestamp (after Fill 2) -> ITCH Exec is at index 3
-    EXPECT_EQ(feed[3].timestamp, start_clock + 5000 + 20); 
-    EXPECT_EQ(feed[3].p.itch_execute.order_id, 1002);
+    // Second ITCH Exec timestamp is at index 5
+    EXPECT_EQ(feed[5].timestamp, start_clock + 5000 + 20); 
+    EXPECT_EQ(feed[5].p.itch_execute.order_id, 1002);
 
-    // Third fill timestamp (after Level Walk + Fill 3) -> ITCH Exec is at index 5
-    EXPECT_EQ(feed[5].timestamp, expected_clock); 
-    EXPECT_EQ(feed[5].p.itch_execute.order_id, 1003);
+    // Third ITCH Exec timestamp is at index 8
+    EXPECT_EQ(feed[8].timestamp, expected_clock); 
+    EXPECT_EQ(feed[8].p.itch_execute.order_id, 1003);
 }
 
 
@@ -412,7 +470,6 @@ TEST_F(MatchingEngineTest, LobState_SpreadAndMidPrice_AfterAdd) {
     auto& state = parser_engine.books[test_stock].state;
 
     // Expectation after Buy Add:
-    // Only Bid exists. When ask is 0, mid_price equals best_bid. Spread is 0.
     EXPECT_EQ(state.best_bid, 5000);
     EXPECT_EQ(state.best_ask, 0);
     EXPECT_EQ(state.mid_price, 5000);
@@ -426,9 +483,6 @@ TEST_F(MatchingEngineTest, LobState_SpreadAndMidPrice_AfterAdd) {
     process_feed_to_parser();
 
     // Expectation after Sell Add:
-    // Both Bid (5000) and Ask (5010) exist!
-    // Spread = 5010 - 5000 = 10.
-    // Midpoint = (5010 + 5000) / 2 = 5005. (Since TICK_SIZE=1, 5005 % 1 == 0, mid_price is 5005).
     EXPECT_EQ(state.best_bid, 5000);
     EXPECT_EQ(state.best_ask, 5010);
     EXPECT_EQ(state.spread, 10);
@@ -454,10 +508,6 @@ TEST_F(MatchingEngineTest, LobState_TradeExecution_VolumeAndImbalance) {
     engine.process_ouch_request(ev3, feed, seq_num);
     process_feed_to_parser();
 
-    // Expectation after 50 share fill:
-    // The resting order was on the BID side ('B'). So bid_executed_shares increases by 50.
-    // Total volume traded = 50.
-    // Order Imbalance = (bid_executed - ask_executed) / total = (50 - 0) / 50 = +1.0.
     EXPECT_EQ(state.last_trade_price, 5000);
     EXPECT_EQ(state.last_trade_size, 50);
     EXPECT_EQ(state.total_volume, 50);
@@ -471,10 +521,6 @@ TEST_F(MatchingEngineTest, LobState_TradeExecution_VolumeAndImbalance) {
     engine.process_ouch_request(ev4, feed, seq_num);
     process_feed_to_parser();
 
-    // Expectation after second trade:
-    // The resting order was on the ASK side ('S'). ask_executed_shares increases by 25.
-    // Total volume traded = 50 + 25 = 75.
-    // Imbalance = (50 - 25) / 75 = 25 / 75 = 0.333333...
     EXPECT_EQ(state.last_trade_price, 5020);
     EXPECT_EQ(state.last_trade_size, 25);
     EXPECT_EQ(state.total_volume, 75);
@@ -503,9 +549,6 @@ TEST_F(MatchingEngineTest, LobState_CancelAndLevelWalk_UpdatesBestPrices) {
     engine.process_ouch_request(ev4, feed, seq_num);
     process_feed_to_parser();
 
-    // Expectation:
-    // Level $50.10 is erased! Best Ask MUST automatically walk up to $50.20.
-    // New spread = 5020 - 5000 = 20.
     EXPECT_EQ(state.best_ask, 5020);
     EXPECT_EQ(state.spread, 20);
     EXPECT_EQ(state.sell_shares, 50);
@@ -515,9 +558,6 @@ TEST_F(MatchingEngineTest, LobState_CancelAndLevelWalk_UpdatesBestPrices) {
     engine.process_ouch_request(ev5, feed, seq_num);
     process_feed_to_parser();
 
-    // Expectation:
-    // The ASK side is now completely empty!
-    // Best Ask MUST reset to 0. Spread MUST reset to 0 (thanks to the fixed else block!).
     EXPECT_EQ(state.best_ask, 0);
     EXPECT_EQ(state.spread, 0);
     EXPECT_EQ(state.mid_price, 5000); // Reverts to best_bid when ask is 0

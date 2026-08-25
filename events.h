@@ -22,10 +22,9 @@ enum class EventType : uint8_t {
 } ;
 
 enum class AgentTier : uint8_t {
-    //HFT = 0,
-    //Fundamentalist = 1,
-    //INSTITUTIONAL = 2,
-    //RETAIL = 3,
+    MM = 1 ,
+    MOM = 2, // momentum
+    PUBLIC = 3, // for itch agent fields.
     EXCHANGE = 4,
     ZI = 5
 } ;
@@ -112,12 +111,11 @@ struct OrderRejected {
 } ;
 
 struct FillNotification {
-    uint64_t agg_order_id ; // aggreesive
-    uint64_t pass_order_id ; // passive
+    uint64_t order_id ; // passive
     uint32_t fill_shares ;
     uint32_t price ;
+    uint32_t remaining_shares ;  // 0=fully filled
     char side ;
-                     // uint32_t remaining_shares ;  // 0=fully filled
 } ;
 
 // Cancel request succeeded.
@@ -152,10 +150,14 @@ struct ReplaceRejected {
 
 struct AgentWakePayload{
     uint64_t last_wakeup = 0 ; // 0 helpful in start of sim
-    AgentTier tier = AgentTier::ZI ;
     uint32_t index = 0 ;
+    AgentTier tier = AgentTier::ZI ;
 } ;
 
+struct AgentInfo {
+    uint32_t index = 0 ;
+    AgentTier tier = AgentTier::ZI ; 
+} ;
 
 enum class MsgType: uint8_t{
   
@@ -181,6 +183,8 @@ struct Event {
     MsgType msg_type ;
 
     uint16_t stock_locate ;
+
+    AgentInfo agent ;
     
     union payload {
       // ouch (inbound)

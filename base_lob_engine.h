@@ -20,6 +20,7 @@
 //#include <stack>
 #include "events.h"
 #include <deque>
+#include <type_traits>
 
 constexpr size_t ORDER_POOL_SIZE = 10000000 ; 
 // 10 million
@@ -68,15 +69,6 @@ struct level{ // 16 bytes
 
 //};
 
-struct Order{
-  
-  int32_t next = INVALID_INDEX ;
-  int32_t prev = INVALID_INDEX; 
-  uint32_t price = 0;
-  uint32_t shares = 0;
-  uint64_t order_id ;
-};
-
 
 enum class OrderType : uint8_t{
   Limit , Market
@@ -93,8 +85,6 @@ enum class EngineMode : uint8_t{
 
 class LOB {  
 
-private: 
-  
 public:
 
   uint64_t clock = 0 ; // use in sim mode .
@@ -164,8 +154,30 @@ public:
 // kernel lob engine = same. 
 // total memory 2.4 gb for lob s.
 
+struct EmptyField {};
+
+
 template <EngineMode mode>
 class Engine{
+
+private: 
+ 
+  struct Order{
+    
+    int32_t next = INVALID_INDEX ;
+    int32_t prev = INVALID_INDEX; 
+    uint32_t price = 0;
+    uint32_t shares = 0;
+    uint64_t order_id ;
+
+    // for agent info (only in simulation mode)
+    struct {
+
+      [[no_unique_address]] std::conditional_t< mode == EngineMode::Simulation , AgentInfo, EmptyField> agent ;
+    } ;
+
+};
+  
 
 public:
 
@@ -202,10 +214,10 @@ public:
     
   }
 
-  void itch_add_order(uint16_t stock_locate , uint64_t order_id , uint32_t price, uint32_t shares , char side ){
+  int32_t itch_add_order(uint16_t stock_locate , uint64_t order_id , uint32_t price, uint32_t shares , char side ){
     
     // prevent 0 share order entry (possible simulation mode)
-    if (shares == 0) return ;
+    if (shares == 0) return -1 ;
     
     // free index
     auto idx = free_indexs.back() ; 
@@ -220,7 +232,6 @@ public:
     pool[idx].price = price ;
     pool[idx].shares = shares ;
     
-    
     LOB& book = books[stock_locate] ;
     
     if (side == 'B'){
@@ -230,7 +241,7 @@ public:
       helper_link_list_chaining<std::flat_map<uint32_t, level, std::less<uint32_t>>>(book.ask_map, idx) ;
     }
     
-    return ;
+    return idx ;
   } 
   
   void itch_reduce_order(uint16_t stock_locate , uint64_t order_id , uint32_t cancel_shares){
@@ -260,7 +271,6 @@ public:
     return ;
   }
 
-  
   void itch_delete_order(uint16_t stock_locate , uint64_t order_id ){
 
     auto it = orders_by_id.find(order_id) ;
@@ -290,7 +300,7 @@ public:
     return ;
  }
  
- void itch_execute_order(uint16_t stock_locate , uint64_t order_id , uint32_t executed_shares){
+  void itch_execute_order(uint16_t stock_locate , uint64_t order_id , uint32_t executed_shares){
  
     auto it = orders_by_id.find(order_id) ;
     auto idx = it->second ; 
@@ -306,7 +316,7 @@ public:
  
  }
  
- void itch_replace_order(uint16_t stock_locate , uint64_t old_id , uint64_t new_id , uint32_t price , uint32_t shares ){
+  void itch_replace_order(uint16_t stock_locate , uint64_t old_id , uint64_t new_id , uint32_t price , uint32_t shares ){
  
     auto it = orders_by_id.find(old_id) ;
     
@@ -351,7 +361,8 @@ public:
       if (pkt.price%lob.TICK_SIZE != 0 || pkt.shares == 0 || orders_by_id.contains(pkt.order_id)){
         // push ouch
         OrderRejected ouch = {pkt.order_id , Reason::invalid_order } ;
-        feed.emplace_back( Event{ lob.clock, seq_num++ , event.sequence_num , EventType::S_OUCH, MsgType::OrderRej , event.stock_locate , {ouch} } ); 
+        feed.emplace_back( Event{ lob.clock, seq_num++ , event.sequence_num , EventType::S_OUCH, MsgType::OrderRej , event.stock_locate ,
+           {event.agent.index, event.agent.tier}, {ouch} } ); 
       }
       else {
         // process
@@ -370,7 +381,8 @@ public:
       if (!orders_by_id.contains( pkt.order_id) ){
         // push ouch
         CancelRejected ouch = {pkt.order_id , Reason::order_id_not_found} ;
-        feed.emplace_back( Event{lob.clock, seq_num++ , event.sequence_num , EventType::S_OUCH, MsgType::CancelRej , event.stock_locate , {ouch} } ) ;
+        feed.emplace_back( Event{lob.clock, seq_num++ , event.sequence_num , EventType::S_OUCH, MsgType::CancelRej , event.stock_locate ,
+          {event.agent.index, event.agent.tier}, {ouch} } ) ;
       }
       else{ 
         // process
@@ -397,7 +409,8 @@ public:
         }
         
         // push
-        feed.emplace_back( Event{lob.clock, seq_num++ , event.sequence_num , EventType::S_OUCH, MsgType::ReplaceRej , event.stock_locate , {ouch} } );
+        feed.emplace_back( Event{lob.clock, seq_num++ , event.sequence_num , EventType::S_OUCH, MsgType::ReplaceRej , event.stock_locate ,
+          {event.agent.index, event.agent.tier}, {ouch} } );
       } 
       else {
         // process
@@ -439,11 +452,13 @@ public:
   char side = lob.bid_map.contains(pkt.price) ? 'B' : 'S' ; 
   // push replace success ouch 
   ReplaceSuccess ouch = {pkt.new_id , pkt.price , old_cancel_shares , pkt.shares , side} ;
-  feed.emplace_back( Event{ lob.clock, seq_num++ , event.sequence_num , EventType::S_OUCH, MsgType::ReplaceSucss , event.stock_locate , {ouch} } );
+  feed.emplace_back( Event{ lob.clock, seq_num++ , event.sequence_num , EventType::S_OUCH, MsgType::ReplaceSucss , event.stock_locate ,
+    {event.agent.index, event.agent.tier}, {ouch} } );
   
   // push replace itch 
   OrderReplace itch = {pkt.old_id,  pkt.new_id , pkt.price , pkt.shares} ;
-  feed.emplace_back( Event{ lob.clock, seq_num++ , event.sequence_num , EventType::ITCH, MsgType::OrderReplace , event.stock_locate , { itch } } ) ;
+  feed.emplace_back( Event{ lob.clock, seq_num++ , event.sequence_num , EventType::ITCH, MsgType::OrderReplace , event.stock_locate ,
+    {0, AgentTier::PUBLIC}, { itch } } ) ;
 
   return ;
 }
@@ -464,7 +479,8 @@ public:
   if (cancel_shares  == 0){
     // push
     CancelRejected ouch = {pkt.order_id , Reason::invalid_request} ;
-    feed.emplace_back( Event{lob.clock, seq_num++ , event.sequence_num , EventType::S_OUCH, MsgType::CancelRej , event.stock_locate , {ouch} } ) ;
+    feed.emplace_back( Event{lob.clock, seq_num++ , event.sequence_num , EventType::S_OUCH, MsgType::CancelRej , event.stock_locate ,
+      {event.agent.index, event.agent.tier}, {ouch} } ) ;
     return ;
   }; 
   
@@ -482,11 +498,13 @@ public:
   
   // push cancel success ouch
   CancelSuccess ouch = {pkt.order_id , remaining_shares} ;
-  feed.emplace_back( Event{ lob.clock, seq_num++ , event.sequence_num , EventType::S_OUCH, MsgType::CancelSucss , event.stock_locate , {ouch} } );
+  feed.emplace_back( Event{ lob.clock, seq_num++ , event.sequence_num , EventType::S_OUCH, MsgType::CancelSucss , event.stock_locate , 
+    {event.agent.index, event.agent.tier}, {ouch} } );
   
   // push cancel itch
   OrderCancel itch = {pkt.order_id , cancel_shares} ;
-  feed.emplace_back( Event{ lob.clock, seq_num++ , event.sequence_num , EventType::ITCH, MsgType::OrderCancel , event.stock_locate , {itch} } ) ;
+  feed.emplace_back( Event{ lob.clock, seq_num++ , event.sequence_num , EventType::ITCH, MsgType::OrderCancel , event.stock_locate , 
+    {0, AgentTier::PUBLIC}, {itch} } ) ;
 
   return ;
 }
@@ -556,7 +574,8 @@ public:
       // generate execution 
       OrderExecuted itch = {order.order_id , executed_shares} ;   
       // fill
-      FillNotification ouch = {order_id , order.order_id , executed_shares , order.price , side } ;
+      FillNotification ouch_p = {order.order_id , executed_shares , order.price , (order.shares-executed_shares), side } ;
+      FillNotification ouch_a = {order_id , executed_shares , order.price , (shares-executed_shares) , side } ;
       
       // increment clock:
       lob.clock += PT_ORDER_FILL ;
@@ -582,11 +601,17 @@ public:
         
       }
       
-      // push fill notification 
-      feed.emplace_back( Event{ lob.clock, seq_num++ , event.sequence_num , EventType::S_OUCH, MsgType::Fill , stock_locate , {ouch} } ); 
+      // push fill notification
+      // aggresive 
+      feed.emplace_back( Event{ lob.clock, seq_num++ , event.sequence_num , EventType::S_OUCH, MsgType::Fill , stock_locate ,
+        {event.agent.index, event.agent.tier}, {ouch_a} } ); 
+      // for passive order
+      feed.emplace_back( Event{ lob.clock, seq_num++ , event.sequence_num , EventType::S_OUCH, MsgType::Fill , stock_locate ,
+        {order.agent.index, order.agent.tier}, {ouch_p} } ); 
       
       // push execution
-      feed.emplace_back( Event{ lob.clock, seq_num++ , event.sequence_num , EventType::ITCH, MsgType::OrderExec , stock_locate , {itch} } ); 
+      feed.emplace_back( Event{ lob.clock, seq_num++ , event.sequence_num , EventType::ITCH, MsgType::OrderExec , stock_locate ,
+        {0, AgentTier::PUBLIC}, {itch} } ); 
       
       // pre-increment clock with level walk time , if it happens in next iteration
       if (level_exhausted && shares > 0 && !opposite_map.empty()) {
@@ -608,25 +633,33 @@ public:
  // remaining limit order ( or passive limit order )
  if (shares > 0 && ord_type == OrderType::Limit){
   // add order to the book
-  itch_add_order(stock_locate , order_id , price, shares , side); //  utilising same function used for itch parser
+  auto idx = itch_add_order(stock_locate , order_id , price, shares , side); //  utilising same function used for itch parser
   
+  // sim mode only (add resting order agent info)
+  pool[idx].agent.index = event.agent.index ;
+  pool[idx].agent.tier = event.agent.tier ;
+  
+
   // increment clock
   lob.clock += PT_ADD_ORDER ;
   
   // push Resting notifi to agent
   OrderRestingNotify ouch = {order_id, price , shares , side } ;
-  feed.emplace_back( Event{ lob.clock, seq_num++ , event.sequence_num , EventType::S_OUCH, MsgType::OrderResting , stock_locate , {ouch} } );
+  feed.emplace_back( Event{ lob.clock, seq_num++ , event.sequence_num , EventType::S_OUCH, MsgType::OrderResting , stock_locate ,
+    {event.agent.index, event.agent.tier}, {ouch} } );
   
   // push Order Add itch into feed
   OrderAdd itch = {order_id , price , shares , side} ;
-  feed.emplace_back( Event{ lob.clock, seq_num++ , event.sequence_num , EventType::ITCH, MsgType::OrderAdd , stock_locate , {itch} } );
+  feed.emplace_back( Event{ lob.clock, seq_num++ , event.sequence_num , EventType::ITCH, MsgType::OrderAdd , stock_locate ,
+    {0, AgentTier::PUBLIC}, {itch} } );
  }
  
  // remaining market order ( book exhausted)
  if (shares > 0 && ord_type == OrderType::Market){
   // remaining market order rejected.
   OrderRejected ouch = {order_id , Reason::book_empty } ;
-  feed.emplace_back( Event{ lob.clock, seq_num++ , event.sequence_num , EventType::S_OUCH, MsgType::OrderRej , stock_locate , {ouch} } );
+  feed.emplace_back( Event{ lob.clock, seq_num++ , event.sequence_num , EventType::S_OUCH, MsgType::OrderRej , stock_locate ,
+    {event.agent.index, event.agent.tier}, {ouch} } );
  }
  
  return ;
