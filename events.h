@@ -22,11 +22,13 @@ enum class EventType : uint8_t {
 } ;
 
 enum class AgentTier : uint8_t {
-    MM = 1 ,
-    MOM = 2, // momentum
-    PUBLIC = 3, // for itch agent fields.
-    EXCHANGE = 4,
-    ZI = 5
+    VALUE = 1,
+    NOISE = 2,
+    ZI    = 3, // The surplus maximizers
+    OBI   = 4, // The Imbalance momentum traders
+    MM    = 5, // The Market Makers
+    PUBLIC = 6, 
+    EXCHANGE = 7
 } ;
 
 enum class Symbol : uint16_t {
@@ -147,11 +149,8 @@ struct ReplaceRejected {
     Reason reason ;
 } ;
 
-
+// empty struct as event already carry the agent info
 struct AgentWakePayload{
-    uint64_t last_wakeup = 0 ; // 0 helpful in start of sim
-    uint32_t index = 0 ;
-    AgentTier tier = AgentTier::ZI ;
 } ;
 
 struct AgentInfo {
