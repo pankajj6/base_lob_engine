@@ -27,8 +27,10 @@ enum class AgentTier : uint8_t {
     ZI    = 3, // The surplus maximizers
     OBI   = 4, // The Imbalance momentum traders
     MM    = 5, // The Market Makers
-    PUBLIC = 6, 
-    EXCHANGE = 7
+    MOM   = 6, // trend momentum traders
+    OSM   = 7,
+    PUBLIC = 8, 
+    EXCHANGE = 9
 } ;
 
 enum class Symbol : uint16_t {
@@ -222,5 +224,4 @@ struct Event {
     } p ;
 } ;
 
-// kernel will maintain a order_id to {agent tier , agent index} map and deliver him specific ouch
 
