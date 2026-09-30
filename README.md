@@ -598,6 +598,8 @@ Because Base LOB Engine is designed as a modular core library, its performance i
 
 1. **Exchange Simulation & Routing:** In the [TALON](https://github.com/pankajj6/talon) market simulation kernel, the engine handles request-processing matching, independent instrument clocks, and dynamic event generation, driving a full multi-agent simulation at **~5.44 million events/sec**.
 2. **Historical Feed Reconstruction:** In the [PCAP Feed Decoder](https://github.com/pankajj6/pcap_feed_decoder), the engine processes preallocated order pools to reconstruct Level-3 limit order books from NASDAQ TotalView-ITCH 5.0 packets at **~5.8–6.0 million ITCH messages/sec**.
+   
+(Note: Throughput numbers might very slightly and become stale entries as corresponding projects develop further. For updated benchmarks, check main repos directly)
 
 Detailed workload characterization, memory configurations, and latency profiles can be found in the respective TALON simulation kernel and PCAP decoder repositories.
 
